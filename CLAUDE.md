@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目用途
 
-Claude Code 大模型提供商配置切换工具（CLI 命令 `ccs`）。预先配置多个提供商档案（百炼、火山等），一键切换，避免手动编辑 `~/.claude/settings.local.json`。
+Claude Code 大模型供应商切换工具（CLI 命令 `ccs`）。预先配置多个供应商预设（百炼、火山等），一键切换，避免手动编辑 `~/.claude/settings.json`。
 
 ## 常用命令
 
@@ -13,21 +13,30 @@ pnpm build          # 编译（输出到 dist/）
 pnpm dev            # 监听模式编译
 pnpm start          # 运行
 node dist/index.js  # 直接运行编译产物
+./install.sh        # 安装全局命令
+./uninstall.sh      # 卸载全局命令
 ```
 
 ## 架构
 
 ```
 src/
-├── types.ts      # Profile、ProfilesConfig 类型定义
-├── config.ts     # 配置档案的 CRUD，读写 ~/.claude-switcher/profiles.json
-├── switcher.ts   # 切换逻辑，读写 ~/.claude/settings.local.json，备份到 backup.json
-└── index.ts      # CLI 入口，交互式主菜单（@inquirer/prompts）
+├── types.ts      # Profile、ProfilesConfig、ProviderPreset 类型定义 + BUILT_IN_PRESETS 内置供应商
+├── config.ts     # 供应商档案的 CRUD，读写 ~/.claude-switcher/profiles.json
+├── switcher.ts   # 切换逻辑：修改 ~/.claude/settings.json 的 env.ANTHROPIC_AUTH_TOKEN/BASE_URL/MODEL
+└── index.ts      # CLI 入口，交互式主菜单（@inquirer/prompts），支持 ESC/返回选项
 ```
 
 - **配置存储**：`~/.claude-switcher/profiles.json`，包含 `profiles[]` 和 `active` 字段
-- **切换目标**：修改 `~/.claude/settings.local.json` 的 `apiKey`、`apiBaseUrl`、`model` 三个字段
-- **备份**：切换前自动备份当前配置到 `~/.claude-switcher/backup.json`
+- **切换目标**：修改 `~/.claude/settings.json` 的 `env` 字段（ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL、ANTHROPIC_MODEL）
+- **备份**：切换前自动备份 `settings.json` 到 `~/.claude-switcher/backup.json`
+- **附加功能**：跳过首次登录引导（`~/.claude.json` 的 `hasCompletedOnboarding`）、AI 署名设置（`settings.json` 的 `attribution`）
+
+## 关键设计决策
+
+- **API Key 明文输入**：添加/编辑供应商时 API Key 使用 `input` 而非 `password`，方便确认输入正确
+- **ESC 返回**：通过 stdin keypress 监听 ESC 键调用 prompt.cancel()，所有交互层均可逐级返回
+- **供应商预设**：`types.ts` 的 `BUILT_IN_PRESETS` 维护内置供应商列表，选预设只需输入 API Key
 
 ## 语言规范
 

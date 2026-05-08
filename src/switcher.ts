@@ -4,15 +4,19 @@ import os from "node:os";
 import type { Profile } from "./types.js";
 
 const CLAUDE_DIR = path.join(os.homedir(), ".claude");
-const SETTINGS_FILE = path.join(CLAUDE_DIR, "settings.local.json");
+const SETTINGS_FILE = path.join(CLAUDE_DIR, "settings.json");
+
+export const CLAUDE_JSON_PATH = path.join(os.homedir(), ".claude.json");
 
 const CONFIG_DIR = path.join(os.homedir(), ".claude-switcher");
 const BACKUP_FILE = path.join(CONFIG_DIR, "backup.json");
 
 interface ClaudeSettings {
-  apiKey?: string;
-  apiBaseUrl?: string;
-  model?: string;
+  env?: Record<string, string>;
+  attribution?: {
+    commits?: boolean;
+    pullRequests?: boolean;
+  };
   [key: string]: unknown;
 }
 
@@ -30,7 +34,7 @@ function ensureSwitcherDir(): void {
 
 export function loadClaudeSettings(): ClaudeSettings {
   if (!fs.existsSync(SETTINGS_FILE)) {
-    return {};
+    return { env: {} };
   }
   const raw = fs.readFileSync(SETTINGS_FILE, "utf-8");
   return JSON.parse(raw) as ClaudeSettings;
@@ -53,8 +57,11 @@ export function backupSettings(): void {
 export function switchToProfile(profile: Profile): void {
   backupSettings();
   const settings = loadClaudeSettings();
-  settings.apiKey = profile.apiKey;
-  settings.apiBaseUrl = profile.apiBaseUrl;
-  settings.model = profile.model;
+  if (!settings.env) {
+    settings.env = {};
+  }
+  settings.env.ANTHROPIC_AUTH_TOKEN = profile.apiKey;
+  settings.env.ANTHROPIC_BASE_URL = profile.apiBaseUrl;
+  settings.env.ANTHROPIC_MODEL = profile.model;
   saveClaudeSettings(settings);
 }
