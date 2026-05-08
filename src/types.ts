@@ -67,6 +67,24 @@ export const BUILT_IN_PRESETS: ProviderPreset[] = [
     model: "moonshotai/Kimi-K2-Instruct-0905",
   },
   {
+    label: "腾讯云（Coding Plan）",
+    name: "tencent-coding",
+    apiBaseUrl: "https://api.lkeap.cloud.tencent.com/coding/anthropic",
+    model: "tc-code-latest",
+  },
+  {
+    label: "腾讯云（Token Plan 个人版）",
+    name: "tencent-token",
+    apiBaseUrl: "https://api.lkeap.cloud.tencent.com/plan/anthropic",
+    model: "tc-code-latest",
+  },
+  {
+    label: "腾讯云（Token Plan 企业版）",
+    name: "tencent-token-enterprise",
+    apiBaseUrl: "https://tokenhub.tencentmaas.com/plan/anthropic",
+    model: "auto",
+  },
+  {
     label: "DeepSeek",
     name: "deepseek",
     apiBaseUrl: "https://api.deepseek.com/anthropic",

@@ -71,6 +71,9 @@ ccs
 | 字节火山引擎（基础版） | `volcano` |
 | 硅基流动 | `siliconflow` |
 | 硅基流动（国际站） | `siliconflow-en` |
+| 腾讯云（Coding Plan） | `tencent-coding` |
+| 腾讯云（Token Plan 个人版） | `tencent-token` |
+| 腾讯云（Token Plan 企业版） | `tencent-token-enterprise` |
 | DeepSeek | `deepseek` |
 | OpenRouter | `openrouter` |
 

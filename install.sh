@@ -6,11 +6,25 @@ TARGET="$SCRIPT_DIR/dist/index.js"
 LINK_DIR="/usr/local/bin"
 LINK="$LINK_DIR/ccs"
 
-if [ ! -f "$TARGET" ]; then
-  echo "错误：未找到编译产物 $TARGET"
-  echo "请先运行 pnpm build"
-  exit 1
+echo "正在安装依赖..."
+cd "$SCRIPT_DIR"
+
+if ! command -v pnpm &>/dev/null; then
+  echo "未检测到 pnpm，正在安装..."
+  if command -v npm &>/dev/null; then
+    npm install -g pnpm
+  elif command -v corepack &>/dev/null; then
+    corepack enable && corepack prepare pnpm@latest --activate
+  else
+    echo "错误：未找到 npm 或 corepack，请先安装 Node.js"
+    exit 1
+  fi
 fi
+
+pnpm install --frozen-lockfile
+
+echo "正在编译..."
+pnpm build
 
 if [ -L "$LINK" ] || [ -e "$LINK" ]; then
   echo "检测到已存在的 ccs，正在移除旧链接..."
