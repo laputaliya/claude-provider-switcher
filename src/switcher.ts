@@ -63,5 +63,11 @@ export function switchToProfile(profile: Profile): void {
   settings.env.ANTHROPIC_AUTH_TOKEN = profile.apiKey;
   settings.env.ANTHROPIC_BASE_URL = profile.apiBaseUrl;
   settings.env.ANTHROPIC_MODEL = profile.model;
+  settings.env.ANTHROPIC_SMALL_FAST_MODEL = profile.smallFastModel;
+  settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = profile.haikuModel;
+  settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL = profile.sonnetModel;
+  settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL = profile.opusModel;
+  settings.env.CLAUDE_CODE_SUBAGENT_MODEL = profile.subagentModel;
+  settings.model = profile.model;
   saveClaudeSettings(settings);
 }

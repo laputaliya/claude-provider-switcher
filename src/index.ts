@@ -12,6 +12,8 @@ import {
   listProfiles,
   getActiveName,
   setActive,
+  loadConfig,
+  saveConfig,
 } from "./config.js";
 import { switchToProfile, CLAUDE_JSON_PATH, loadClaudeSettings, saveClaudeSettings } from "./switcher.js";
 import { BUILT_IN_PRESETS } from "./types.js";
@@ -60,6 +62,11 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   apiKey: "API Key",
   apiBaseUrl: "API Base URL",
   model: "模型名称",
+  smallFastModel: "Small/Fast 模型",
+  haikuModel: "Haiku 模型",
+  sonnetModel: "Sonnet 模型",
+  opusModel: "Opus 模型",
+  subagentModel: "Subagent 模型",
 };
 
 const BACK = Symbol("back");
@@ -230,11 +237,27 @@ async function handleAdd(): Promise<void> {
     }
     const model = await safeInput({ message: "模型名称：", default: preset.model });
     if (model === null) { cancelled(); return; }
+    const mainModel = model || preset.model;
+    const smallFastModel = await safeInput({ message: "Small/Fast 模型：", default: mainModel });
+    if (smallFastModel === null) { cancelled(); return; }
+    const haikuModel = await safeInput({ message: "Haiku 模型：", default: mainModel });
+    if (haikuModel === null) { cancelled(); return; }
+    const sonnetModel = await safeInput({ message: "Sonnet 模型：", default: mainModel });
+    if (sonnetModel === null) { cancelled(); return; }
+    const opusModel = await safeInput({ message: "Opus 模型：", default: mainModel });
+    if (opusModel === null) { cancelled(); return; }
+    const subagentModel = await safeInput({ message: "Subagent 模型：", default: mainModel });
+    if (subagentModel === null) { cancelled(); return; }
     profile = {
       name: preset.name,
       apiKey,
       apiBaseUrl: preset.apiBaseUrl,
-      model: model || preset.model,
+      model: mainModel,
+      smallFastModel: smallFastModel || mainModel,
+      haikuModel: haikuModel || mainModel,
+      sonnetModel: sonnetModel || mainModel,
+      opusModel: opusModel || mainModel,
+      subagentModel: subagentModel || mainModel,
     };
   } else {
     const name = await safeInput({ message: "供应商名（如 my-provider）：" });
@@ -249,7 +272,28 @@ async function handleAdd(): Promise<void> {
     if (apiBaseUrl === null) { cancelled(); return; }
     const model = await safeInput({ message: "模型名称：" });
     if (model === null) { cancelled(); return; }
-    profile = { name: name.trim(), apiKey, apiBaseUrl, model };
+    const mainModel = model || "";
+    const smallFastModel = await safeInput({ message: "Small/Fast 模型：", default: mainModel });
+    if (smallFastModel === null) { cancelled(); return; }
+    const haikuModel = await safeInput({ message: "Haiku 模型：", default: mainModel });
+    if (haikuModel === null) { cancelled(); return; }
+    const sonnetModel = await safeInput({ message: "Sonnet 模型：", default: mainModel });
+    if (sonnetModel === null) { cancelled(); return; }
+    const opusModel = await safeInput({ message: "Opus 模型：", default: mainModel });
+    if (opusModel === null) { cancelled(); return; }
+    const subagentModel = await safeInput({ message: "Subagent 模型：", default: mainModel });
+    if (subagentModel === null) { cancelled(); return; }
+    profile = {
+      name: name.trim(),
+      apiKey,
+      apiBaseUrl,
+      model: mainModel,
+      smallFastModel: smallFastModel || mainModel,
+      haikuModel: haikuModel || mainModel,
+      sonnetModel: sonnetModel || mainModel,
+      opusModel: opusModel || mainModel,
+      subagentModel: subagentModel || mainModel,
+    };
   }
 
   try {
@@ -283,41 +327,76 @@ async function handleEdit(): Promise<void> {
     return;
   }
 
-  const field = await safeSelect<FieldKey | typeof BACK>({
-    message: "选择要修改的字段：",
-    choices: [
-      ...(["apiKey", "apiBaseUrl", "model"] as FieldKey[]).map((f) => ({
-        value: f as FieldKey | typeof BACK,
-        name: FIELD_LABELS[f],
-      })),
-      BACK_CHOICE as { value: FieldKey | typeof BACK; name: string },
-    ],
+  const apiKey = await safeInput({
+    message: `API Key（明文输入，回车保持原值）：`,
+    default: selected.apiKey,
   });
+  if (apiKey === null) { cancelled(); return; }
 
-  if (field === null || field === BACK) {
-    cancelled();
-    return;
-  }
+  const apiBaseUrl = await safeInput({
+    message: "API Base URL（回车保持原值）：",
+    default: selected.apiBaseUrl,
+  });
+  if (apiBaseUrl === null) { cancelled(); return; }
 
-  let newValue: string;
-  if (field === "apiKey") {
-    const val = await safeInput({
-      message: `新的 ${FIELD_LABELS[field]}（明文输入，请确认无误）：`,
-    });
-    if (val === null) { cancelled(); return; }
-    newValue = val;
-  } else {
-    const val = await safeInput({
-      message: `新的 ${FIELD_LABELS[field]}：`,
-      default: selected[field],
-    });
-    if (val === null) { cancelled(); return; }
-    newValue = val;
-  }
+  const model = await safeInput({
+    message: "模型名称（回车保持原值）：",
+    default: selected.model,
+  });
+  if (model === null) { cancelled(); return; }
+
+  const mainModel = model || selected.model;
+
+  const smallFastModel = await safeInput({
+    message: "Small/Fast 模型（回车保持原值）：",
+    default: selected.smallFastModel || mainModel,
+  });
+  if (smallFastModel === null) { cancelled(); return; }
+
+  const haikuModel = await safeInput({
+    message: "Haiku 模型（回车保持原值）：",
+    default: selected.haikuModel || mainModel,
+  });
+  if (haikuModel === null) { cancelled(); return; }
+
+  const sonnetModel = await safeInput({
+    message: "Sonnet 模型（回车保持原值）：",
+    default: selected.sonnetModel || mainModel,
+  });
+  if (sonnetModel === null) { cancelled(); return; }
+
+  const opusModel = await safeInput({
+    message: "Opus 模型（回车保持原值）：",
+    default: selected.opusModel || mainModel,
+  });
+  if (opusModel === null) { cancelled(); return; }
+
+  const subagentModel = await safeInput({
+    message: "Subagent 模型（回车保持原值）：",
+    default: selected.subagentModel || mainModel,
+  });
+  if (subagentModel === null) { cancelled(); return; }
+
+  const profile: Profile = {
+    name: selected.name,
+    apiKey: apiKey || selected.apiKey,
+    apiBaseUrl: apiBaseUrl || selected.apiBaseUrl,
+    model: mainModel,
+    smallFastModel: smallFastModel || mainModel,
+    haikuModel: haikuModel || mainModel,
+    sonnetModel: sonnetModel || mainModel,
+    opusModel: opusModel || mainModel,
+    subagentModel: subagentModel || mainModel,
+  };
 
   try {
-    updateProfile(selected.name, field, newValue);
-    console.log(chalk.green(`✓ "${selected.name}" 的 ${FIELD_LABELS[field]} 已更新。`));
+    const config = loadConfig();
+    const idx = config.profiles.findIndex((p) => p.name === selected.name);
+    if (idx !== -1) {
+      config.profiles[idx] = profile;
+      saveConfig(config);
+      console.log(chalk.green(`✓ 供应商 "${selected.name}" 已更新。`));
+    }
   } catch (err) {
     console.log(chalk.red((err as Error).message));
   }
@@ -384,8 +463,13 @@ function handleList(): void {
   for (const p of profiles) {
     const marker = p.name === active ? chalk.green(" ← 当前") : "";
     console.log(`  ${chalk.bold(p.name)}${marker}`);
-    console.log(`    Base URL: ${p.apiBaseUrl}`);
-    console.log(`    模型:     ${p.model}`);
+    console.log(`    Base URL:       ${p.apiBaseUrl}`);
+    console.log(`    模型:           ${p.model}`);
+    if (p.smallFastModel !== p.model) console.log(`    Small/Fast:     ${p.smallFastModel}`);
+    if (p.haikuModel !== p.model) console.log(`    Haiku:          ${p.haikuModel}`);
+    if (p.sonnetModel !== p.model) console.log(`    Sonnet:         ${p.sonnetModel}`);
+    if (p.opusModel !== p.model) console.log(`    Opus:           ${p.opusModel}`);
+    if (p.subagentModel !== p.model) console.log(`    Subagent:       ${p.subagentModel}`);
   }
   console.log("");
 }

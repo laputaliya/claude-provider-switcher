@@ -3,6 +3,11 @@ export interface Profile {
   apiKey: string;
   apiBaseUrl: string;
   model: string;
+  smallFastModel: string;
+  haikuModel: string;
+  sonnetModel: string;
+  opusModel: string;
+  subagentModel: string;
 }
 
 export interface ProfilesConfig {
@@ -83,6 +88,12 @@ export const BUILT_IN_PRESETS: ProviderPreset[] = [
     name: "tencent-token-enterprise",
     apiBaseUrl: "https://tokenhub.tencentmaas.com/plan/anthropic",
     model: "auto",
+  },
+  {
+    label: "智谱",
+    name: "zhipu",
+    apiBaseUrl: "https://open.bigmodel.cn/api/anthropic",
+    model: "glm5.1",
   },
   {
     label: "DeepSeek",
