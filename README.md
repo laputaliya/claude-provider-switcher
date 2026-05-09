@@ -19,12 +19,6 @@
 git clone <repo-url>
 cd claude-provider-switcher
 
-# 安装依赖
-pnpm install
-
-# 编译
-pnpm build
-
 # 安装全局命令
 ./install.sh
 ```
