@@ -106,6 +106,10 @@ async function safeSelect<T>(options: Parameters<typeof select<T>>[0]): Promise<
 }
 
 async function mainMenu(): Promise<void> {
+  console.log(chalk.cyan("  Claude Code 供应商切换工具 (ccs)"));
+  console.log(chalk.dim("  快速切换大模型供应商，内置百炼/火山/硅基流动/腾讯云/DeepSeek/OpenRouter 等预设"));
+  console.log("");
+
   while (true) {
     const action = await safeSelect({
       message: "请选择操作：",
