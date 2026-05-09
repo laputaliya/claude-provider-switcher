@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目用途
 
-Claude Code 大模型供应商切换工具（CLI 命令 `ccs`）。预先配置多个供应商预设（百炼、火山等），一键切换，避免手动编辑 `~/.claude/settings.json`。
+Claude Code 大模型供应商切换工具（CLI 命令 `ccs`，包名 `claude-provider-switcher`）。预先配置多个供应商预设（百炼、火山等），一键切换，避免手动编辑 `~/.claude/settings.json`。
 
 ## 常用命令
 

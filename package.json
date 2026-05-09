@@ -1,5 +1,5 @@
 {
-  "name": "claude-platform-switcher",
+  "name": "claude-provider-switcher",
   "version": "0.1.0",
   "description": "Claude Code 大模型提供商配置切换工具",
   "type": "module",

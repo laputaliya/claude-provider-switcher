@@ -1,4 +1,4 @@
-# Claude Code 平台切换工具
+# Claude Code 大模型供应商切换工具
 
 一个交互式 CLI 工具，用于快速切换 Claude Code 的大模型供应商。内置 10 个常用供应商预设（阿里百炼、字节火山引擎、硅基流动、DeepSeek、OpenRouter 等），一键切换，告别手动编辑配置文件。
 
@@ -17,7 +17,7 @@
 ```bash
 # 克隆项目
 git clone <repo-url>
-cd claude-platform-swither
+cd claude-provider-switcher
 
 # 安装依赖
 pnpm install
