@@ -6,6 +6,25 @@ TARGET="$SCRIPT_DIR/dist/index.js"
 LINK_DIR="/usr/local/bin"
 LINK="$LINK_DIR/ccs"
 
+echo "正在检测 Claude Code..."
+if command -v claude &>/dev/null; then
+  echo "✓ Claude Code 已安装 ($(claude --version 2>/dev/null || echo 'ok'))"
+else
+  echo "未检测到 Claude Code，正在安装..."
+  if command -v npm &>/dev/null; then
+    npm install -g @anthropic-ai/claude-code
+  else
+    echo "错误：未找到 npm，请先安装 Node.js"
+    exit 1
+  fi
+  if command -v claude &>/dev/null; then
+    echo "✓ Claude Code 安装成功"
+  else
+    echo "错误：Claude Code 安装失败，请手动安装后重试"
+    exit 1
+  fi
+fi
+
 echo "正在安装依赖..."
 cd "$SCRIPT_DIR"
 
