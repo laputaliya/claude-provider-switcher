@@ -68,6 +68,11 @@ ccs
 | 腾讯云（Coding Plan） | `tencent-coding` |
 | 腾讯云（Token Plan 个人版） | `tencent-token` |
 | 腾讯云（Token Plan 企业版） | `tencent-token-enterprise` |
+| MiniMax（国内站） | `minimax` |
+| MiniMax（国际站） | `minimax-en` |
+| 月之暗面（Kimi Code Plan） | `moonshot-code` |
+| 月之暗面（开放平台） | `moonshot` |
+| 智谱 | `zhipu` |
 | DeepSeek | `deepseek` |
 | OpenRouter | `openrouter` |
 

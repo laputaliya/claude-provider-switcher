@@ -90,6 +90,30 @@ export const BUILT_IN_PRESETS: ProviderPreset[] = [
     model: "auto",
   },
   {
+    label: "MiniMax（国内站）",
+    name: "minimax",
+    apiBaseUrl: "https://api.minimaxi.com/anthropic",
+    model: "MiniMax-M2.7",
+  },
+  {
+    label: "MiniMax（国际站）",
+    name: "minimax-en",
+    apiBaseUrl: "https://api.minimax.io/anthropic",
+    model: "MiniMax-M2.7",
+  },
+  {
+    label: "月之暗面（Kimi Code Plan）",
+    name: "moonshot-code",
+    apiBaseUrl: "https://api.kimi.com/coding",
+    model: "kimi-k2.6",
+  },
+  {
+    label: "月之暗面（开放平台）",
+    name: "moonshot",
+    apiBaseUrl: "https://api.moonshot.cn/anthropic",
+    model: "kimi-k2.6",
+  },
+  {
     label: "智谱",
     name: "zhipu",
     apiBaseUrl: "https://open.bigmodel.cn/api/anthropic",
