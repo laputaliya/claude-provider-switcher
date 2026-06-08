@@ -121,19 +121,47 @@ async function mainMenu(): Promise<void> {
     const action = await safeSelect({
       message: "请选择操作：",
       choices: [
-        { value: "switch", name: "🔄  切换供应商" },
-        { value: "add", name: "➕  添加供应商" },
-        { value: "edit", name: "✏️  编辑供应商" },
-        { value: "delete", name: "🗑️  删除供应商" },
-        { value: "list", name: "📋  列出供应商" },
-        { value: "onboarding", name: "🚀  跳过首次登录引导" },
-        { value: "attribution", name: "✍️  AI 署名设置" },
+        { value: "models", name: "🔧  模型管理" },
+        { value: "config", name: "⚙️  Claude Code 配置" },
         { value: "exit", name: "🚪  退出" },
       ],
     });
 
     if (action === null) {
       console.log(chalk.green("再见！"));
+      return;
+    }
+
+    switch (action) {
+      case "models":
+        await modelManagementMenu();
+        break;
+      case "config":
+        await ccConfigMenu();
+        break;
+      case "exit":
+        console.log(chalk.green("再见！"));
+        return;
+    }
+  }
+}
+
+async function modelManagementMenu(): Promise<void> {
+  while (true) {
+    const action = await safeSelect({
+      message: "模型管理：",
+      choices: [
+        { value: "switch", name: "🔄  切换供应商" },
+        { value: "add", name: "➕  添加供应商" },
+        { value: "edit", name: "✏️  编辑供应商" },
+        { value: "delete", name: "🗑️  删除供应商" },
+        { value: "list", name: "📋  列出供应商" },
+        BACK_CHOICE,
+      ],
+    });
+
+    if (action === null || action === BACK) {
+      cancelled();
       return;
     }
 
@@ -153,15 +181,37 @@ async function mainMenu(): Promise<void> {
       case "list":
         handleList();
         break;
+    }
+  }
+}
+
+async function ccConfigMenu(): Promise<void> {
+  while (true) {
+    const action = await safeSelect({
+      message: "Claude Code 配置：",
+      choices: [
+        { value: "env", name: "🌍  环境变量设置" },
+        { value: "onboarding", name: "🚀  跳过首次登录引导" },
+        { value: "attribution", name: "✍️  AI 署名设置" },
+        BACK_CHOICE,
+      ],
+    });
+
+    if (action === null || action === BACK) {
+      cancelled();
+      return;
+    }
+
+    switch (action) {
+      case "env":
+        await handleEnvVars();
+        break;
       case "onboarding":
         await handleOnboarding();
         break;
       case "attribution":
         await handleAttribution();
         break;
-      case "exit":
-        console.log(chalk.green("再见！"));
-        return;
     }
   }
 }
@@ -567,6 +617,180 @@ async function handleAttribution(): Promise<void> {
     console.log(chalk.green("✓ AI 署名设置已保存。"));
   } catch (err) {
     console.log(chalk.red(`设置失败：${(err as Error).message}`));
+  }
+}
+
+// ─── 环境变量定义 ────────────────────────────────────────────
+
+interface EnvVarDef {
+  key: string;
+  label: string;
+  desc: string;
+  type: "input" | "select" | "boolean";
+  options?: { value: string; name: string }[];
+}
+
+const ENV_VAR_DEFS: EnvVarDef[] = [
+  {
+    key: "CLAUDE_CODE_EFFORT_LEVEL",
+    label: "思考努力程度",
+    desc: "控制 Claude Code 思考深度，影响响应质量与耗时",
+    type: "select",
+    options: [
+      { value: "auto", name: "自动（默认）" },
+      { value: "low", name: "低" },
+      { value: "medium", name: "中" },
+      { value: "high", name: "高" },
+      { value: "xhigh", name: "极高" },
+      { value: "max", name: "最大" },
+    ],
+  },
+  {
+    key: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    label: "禁用非必要网络流量",
+    desc: "禁止 Claude Code 后台发送遥测/分析等非必要请求",
+    type: "boolean",
+  },
+  {
+    key: "CLAUDE_CODE_DISABLE_THINKING",
+    label: "禁用扩展思考",
+    desc: "强制关闭扩展思考模式，可提升响应速度",
+    type: "boolean",
+  },
+  {
+    key: "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+    label: "禁用自动记忆",
+    desc: "关闭 Claude Code 自动记录记忆的功能",
+    type: "boolean",
+  },
+  {
+    key: "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS",
+    label: "禁用 Git 指令",
+    desc: "不自动注入 Git 相关的工作流提示",
+    type: "boolean",
+  },
+  {
+    key: "API_TIMEOUT_MS",
+    label: "API 超时（毫秒）",
+    desc: "API 请求超时时间，默认 600000（10分钟），最大 2147483647",
+    type: "input",
+  },
+  {
+    key: "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+    label: "最大输出 Token 数",
+    desc: "限制单次请求的最大输出 token 数量",
+    type: "input",
+  },
+  {
+    key: "CLAUDE_CODE_ATTRIBUTION_HEADER",
+    label: "署名请求头",
+    desc: "自定义 Claude Code 发送的署名标识字符串",
+    type: "input",
+  },
+];
+
+// ─── 环境变量处理函数 ────────────────────────────────────────
+
+const EFFORT_LABELS: Record<string, string> = {
+  auto: "自动",
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "极高",
+  max: "最大",
+};
+
+async function handleEnvVars(): Promise<void> {
+  const settings = loadClaudeSettings();
+  if (!settings.env) {
+    settings.env = {};
+  }
+  const env = settings.env;
+
+  while (true) {
+    // 显示当前值
+    console.log("");
+    console.log(chalk.bold("  当前环境变量："));
+    for (const def of ENV_VAR_DEFS) {
+      const val = env[def.key];
+      let display: string;
+      if (def.type === "boolean") {
+        display = val === "1" ? chalk.green("已开启") : chalk.dim("未设置/关闭");
+      } else if (def.key === "CLAUDE_CODE_EFFORT_LEVEL") {
+        display = val ? chalk.cyan(EFFORT_LABELS[val] ?? val) : chalk.dim("未设置");
+      } else {
+        display = val ? chalk.cyan(val) : chalk.dim("未设置");
+      }
+      console.log(`    ${chalk.bold(def.label)}：${display}`);
+    }
+    console.log("");
+
+    const defsWithBack = [
+      ...ENV_VAR_DEFS.map((d) => ({
+        value: d as EnvVarDef | typeof BACK,
+        name: `${d.label} — ${chalk.dim(d.desc)}`,
+      })),
+      BACK_CHOICE as { value: EnvVarDef | typeof BACK; name: string },
+    ];
+
+    const chosen = await safeSelect<EnvVarDef | typeof BACK>({
+      message: "选择要修改的环境变量：",
+      choices: defsWithBack,
+    });
+
+    if (chosen === null || chosen === BACK) {
+      cancelled();
+      return;
+    }
+
+    const def = chosen as EnvVarDef;
+
+    if (def.type === "boolean") {
+      const currentOn = env[def.key] === "1";
+      const choice = await safeSelect({
+        message: `${def.label}：`,
+        choices: [
+          { value: "on", name: `开启${currentOn ? chalk.green(" ← 当前") : ""}` },
+          { value: "off", name: `关闭${!currentOn ? chalk.green(" ← 当前") : ""}` },
+        ],
+      });
+      if (choice === null) { cancelled(); return; }
+      if (choice === "on") {
+        env[def.key] = "1";
+      } else {
+        delete env[def.key];
+      }
+    } else if (def.type === "select") {
+      const currentVal = env[def.key] || "auto";
+      const options = (def.options ?? []).map((o) => ({
+        value: o.value,
+        name: `${o.name}${o.value === currentVal ? chalk.green(" ← 当前") : ""}`,
+      }));
+      const val = await safeSelect({
+        message: `${def.label}：`,
+        choices: options,
+      });
+      if (val === null) { cancelled(); return; }
+      env[def.key] = val;
+    } else {
+      const val = await safeInput({
+        message: `${def.label}：`,
+        default: env[def.key] ?? "",
+      });
+      if (val === null) { cancelled(); return; }
+      if (val.trim()) {
+        env[def.key] = val.trim();
+      } else {
+        delete env[def.key];
+      }
+    }
+
+    try {
+      saveClaudeSettings(settings);
+      console.log(chalk.green(`✓ 环境变量 "${def.label}" 已保存。`));
+    } catch (err) {
+      console.log(chalk.red(`保存失败：${(err as Error).message}`));
+    }
   }
 }
 
