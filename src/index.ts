@@ -8,8 +8,7 @@ import chalk from "chalk";
 import {
   addProfile,
   removeProfile,
-  updateProfile,
-  listProfiles,
+  listProfilesByTool,
   getActiveName,
   setActive,
   loadConfig,
@@ -17,8 +16,33 @@ import {
 } from "./config.js";
 import { switchToProfile, CLAUDE_JSON_PATH, loadClaudeSettings, saveClaudeSettings } from "./switcher.js";
 import { BUILT_IN_PRESETS } from "./types.js";
-import type { Profile, ProviderPreset } from "./types.js";
+import type { Profile, ProviderPreset, ToolType } from "./types.js";
 import fs from "node:fs";
+import readline from "node:readline";
+
+// ─── 全局 ESC 处理（短转义序列超时 + AbortController）────────
+
+let currentAbort: (() => void) | null = null;
+
+if (process.stdin.isTTY) {
+  // Monkey-patch：所有 readline Interface（含 inquirer 内部）强制 50ms ESC 超时
+  const orig = readline.createInterface;
+  // @ts-ignore
+  readline.createInterface = function (opts) {
+    return orig.call(this, { escapeCodeTimeout: 50, ...opts });
+  };
+  // 通过 monkey-patched 接口初始化 keypress decoder（50ms 超时）
+  const initRl = readline.createInterface({ input: process.stdin });
+  initRl.close(); // 仅用于初始化，close 不会清除 keypress decoder
+
+  process.stdin.on("keypress", (_ch, key) => {
+    if ((key?.name === "escape" || key?.sequence === "\x1b") && currentAbort) {
+      const abort = currentAbort;
+      currentAbort = null;
+      abort();
+    }
+  });
+}
 
 function isCancelError(e: unknown): boolean {
   return e instanceof Error
@@ -29,48 +53,19 @@ function isCancelError(e: unknown): boolean {
 
 type PromptWithCancel<T> = Promise<T> & { cancel(): void };
 
-function withEscCancel<T>(prompt: PromptWithCancel<T>): Promise<T> {
-  if (!process.stdin.isTTY) return prompt;
-
-  let handled = false;
-  const listener = (ch: string, key: { name?: string; sequence?: string }) => {
-    if (handled) return;
-    if (key.name === "escape" || key.sequence === "\x1b") {
-      handled = true;
-      process.stdin.removeListener("keypress", listener);
-      prompt.cancel();
-    }
-  };
-  process.stdin.on("keypress", listener);
-
-  return prompt.then(
-    (result) => {
-      process.stdin.removeListener("keypress", listener);
-      return result;
-    },
-    (err) => {
-      process.stdin.removeListener("keypress", listener);
-      throw err;
-    },
-  );
+function withEscCancel<T>(
+  makePrompt: (signal: AbortSignal) => PromptWithCancel<T>,
+): Promise<T> {
+  if (!process.stdin.isTTY) return makePrompt(new AbortController().signal);
+  const controller = new AbortController();
+  currentAbort = () => controller.abort();
+  return makePrompt(controller.signal).finally(() => {
+    currentAbort = null;
+  });
 }
 
-type FieldKey = keyof Profile;
-
-const FIELD_LABELS: Record<FieldKey, string> = {
-  name: "供应商名",
-  apiKey: "API Key",
-  apiBaseUrl: "API Base URL",
-  model: "模型名称",
-  smallFastModel: "Small/Fast 模型",
-  haikuModel: "Haiku 模型",
-  sonnetModel: "Sonnet 模型",
-  opusModel: "Opus 模型",
-  subagentModel: "Subagent 模型",
-};
-
 const BACK = Symbol("back");
-const BACK_CHOICE = { value: BACK, name: "↩️  返回上级菜单" };
+const BACK_CHOICE = { value: BACK, name: "🔙 返回上级菜单" };
 
 function cancelled(): void {
   console.log(chalk.yellow("已返回。"));
@@ -78,7 +73,7 @@ function cancelled(): void {
 
 async function safeInput(options: Parameters<typeof input>[0]): Promise<string | null> {
   try {
-    return await withEscCancel(input(options));
+    return await withEscCancel((signal) => input(options, { signal }) as PromptWithCancel<string>);
   } catch (e) {
     if (isCancelError(e)) return null;
     throw e;
@@ -87,7 +82,7 @@ async function safeInput(options: Parameters<typeof input>[0]): Promise<string |
 
 async function safePassword(options: Parameters<typeof password>[0]): Promise<string | null> {
   try {
-    return await withEscCancel(password(options));
+    return await withEscCancel((signal) => password(options, { signal }) as PromptWithCancel<string>);
   } catch (e) {
     if (isCancelError(e)) return null;
     throw e;
@@ -96,7 +91,7 @@ async function safePassword(options: Parameters<typeof password>[0]): Promise<st
 
 async function safeConfirm(options: Parameters<typeof confirm>[0]): Promise<boolean | null> {
   try {
-    return await withEscCancel(confirm(options));
+    return await withEscCancel((signal) => confirm(options, { signal }) as PromptWithCancel<boolean>);
   } catch (e) {
     if (isCancelError(e)) return null;
     throw e;
@@ -105,25 +100,27 @@ async function safeConfirm(options: Parameters<typeof confirm>[0]): Promise<bool
 
 async function safeSelect<T>(options: Parameters<typeof select<T>>[0]): Promise<T | null> {
   try {
-    return await withEscCancel(select<T>(options) as PromptWithCancel<T>);
+    return await withEscCancel((signal) => select<T>(options, { signal }) as PromptWithCancel<T>);
   } catch (e) {
     if (isCancelError(e)) return null;
     throw e;
   }
 }
 
+// ─── 主菜单 ──────────────────────────────────────────────────
+
 async function mainMenu(): Promise<void> {
-  console.log(chalk.cyan("  Claude Code 供应商切换工具 (ccs)"));
+  console.log(chalk.cyan("  Claude Code / OpenCode 供应商切换工具 (ccs)"));
   console.log(chalk.dim("  快速切换大模型供应商，内置百炼/火山/硅基流动/腾讯云/DeepSeek/OpenRouter 等预设"));
   console.log("");
 
   while (true) {
     const action = await safeSelect({
-      message: "请选择操作：",
+      message: "请选择工具：",
       choices: [
-        { value: "models", name: "🔧  模型管理" },
-        { value: "config", name: "⚙️  Claude Code 配置" },
-        { value: "exit", name: "🚪  退出" },
+        { value: "claude-code" as const, name: "🤖 Claude Code" },
+        { value: "opencode" as const, name: "🐙 OpenCode" },
+        { value: "exit" as const, name: "🚪 退出" },
       ],
     });
 
@@ -133,11 +130,11 @@ async function mainMenu(): Promise<void> {
     }
 
     switch (action) {
-      case "models":
-        await modelManagementMenu();
+      case "claude-code":
+        await toolMenu("claude-code");
         break;
-      case "config":
-        await ccConfigMenu();
+      case "opencode":
+        await toolMenu("opencode");
         break;
       case "exit":
         console.log(chalk.green("再见！"));
@@ -146,16 +143,56 @@ async function mainMenu(): Promise<void> {
   }
 }
 
-async function modelManagementMenu(): Promise<void> {
+// ─── 工具菜单（Claude Code / OpenCode）───────────────────────
+
+async function toolMenu(tool: ToolType): Promise<void> {
+  const label = tool === "claude-code" ? "Claude Code" : "OpenCode";
+
+  while (true) {
+    const choices = tool === "claude-code"
+      ? [
+          { value: "models", name: "🔧 模型管理" },
+          { value: "config", name: "🔩 配置管理" },
+          BACK_CHOICE,
+        ]
+      : [
+          { value: "models", name: "🔧 模型管理" },
+          BACK_CHOICE,
+        ];
+
+    const action = await safeSelect({
+      message: `${label}：`,
+      choices,
+    });
+
+    if (action === null || action === BACK) {
+      cancelled();
+      return;
+    }
+
+    switch (action) {
+      case "models":
+        await modelManagementMenu(tool);
+        break;
+      case "config":
+        await ccConfigMenu();
+        break;
+    }
+  }
+}
+
+// ─── 模型管理（通用，按 tool 区分）───────────────────────────
+
+async function modelManagementMenu(tool: ToolType): Promise<void> {
   while (true) {
     const action = await safeSelect({
       message: "模型管理：",
       choices: [
-        { value: "switch", name: "🔄  切换供应商" },
-        { value: "add", name: "➕  添加供应商" },
-        { value: "edit", name: "✏️  编辑供应商" },
-        { value: "delete", name: "🗑️  删除供应商" },
-        { value: "list", name: "📋  列出供应商" },
+        { value: "switch", name: "🔄 切换供应商" },
+        { value: "add", name: "➕ 添加供应商" },
+        { value: "edit", name: "📝 编辑供应商" },
+        { value: "delete", name: "❌ 删除供应商" },
+        { value: "list", name: "📋 列出供应商" },
         BACK_CHOICE,
       ],
     });
@@ -167,32 +204,33 @@ async function modelManagementMenu(): Promise<void> {
 
     switch (action) {
       case "switch":
-        await handleSwitch();
+        await handleSwitch(tool);
         break;
       case "add":
-        await handleAdd();
+        await handleAdd(tool);
         break;
       case "edit":
-        await handleEdit();
+        await handleEdit(tool);
         break;
       case "delete":
-        await handleDelete();
+        await handleDelete(tool);
         break;
       case "list":
-        handleList();
+        handleList(tool);
         break;
     }
   }
 }
+
+// ─── Claude Code 配置菜单 ────────────────────────────────────
 
 async function ccConfigMenu(): Promise<void> {
   while (true) {
     const action = await safeSelect({
       message: "Claude Code 配置：",
       choices: [
-        { value: "env", name: "🌍  环境变量设置" },
-        { value: "onboarding", name: "🚀  跳过首次登录引导" },
-        { value: "attribution", name: "✍️  AI 署名设置" },
+        { value: "env", name: "🌍 环境变量设置" },
+        { value: "onboarding", name: "🚀 跳过首次登录引导" },
         BACK_CHOICE,
       ],
     });
@@ -209,27 +247,26 @@ async function ccConfigMenu(): Promise<void> {
       case "onboarding":
         await handleOnboarding();
         break;
-      case "attribution":
-        await handleAttribution();
-        break;
     }
   }
 }
 
-async function handleSwitch(): Promise<void> {
-  const profiles = listProfiles();
+// ─── 切换供应商 ──────────────────────────────────────────────
+
+async function handleSwitch(tool: ToolType): Promise<void> {
+  const profiles = listProfilesByTool(tool);
   if (profiles.length === 0) {
     console.log(chalk.yellow("暂无供应商配置，请先添加。"));
     return;
   }
 
-  const active = getActiveName();
+  const active = getActiveName(tool);
   const profile = await safeSelect<Profile | typeof BACK>({
     message: "选择要切换的供应商：",
     choices: [
       ...profiles.map((p) => ({
         value: p as Profile | typeof BACK,
-        name: `${p.name} (模型: ${p.model})${p.name === active ? chalk.green(" [当前]") : ""}`,
+        name: `${p.name} (${p.model})${p.name === active ? chalk.green(" ← 当前") : ""}`,
       })),
       BACK_CHOICE as { value: Profile | typeof BACK; name: string },
     ],
@@ -250,22 +287,26 @@ async function handleSwitch(): Promise<void> {
 
   try {
     switchToProfile(profile);
-    setActive(profile.name);
-    console.log(chalk.green(`✓ 已切换到 "${profile.name}"，请重启 Claude Code 使配置生效。`));
+    setActive(tool, profile.name);
+    const toolLabel = tool === "claude-code" ? "Claude Code" : "OpenCode";
+    console.log(chalk.green(`✓ 已切换到 "${profile.name}"，请重启 ${toolLabel} 使配置生效。`));
   } catch (err) {
     console.log(chalk.red(`切换失败：${(err as Error).message}`));
   }
 }
 
-async function handleAdd(): Promise<void> {
+// ─── 添加供应商 ──────────────────────────────────────────────
+
+async function handleAdd(tool: ToolType): Promise<void> {
+  const toolLabel = tool === "claude-code" ? "Claude Code" : "OpenCode";
   const presetChoice = await safeSelect<ProviderPreset | null | typeof BACK>({
-    message: "选择供应商：",
+    message: `选择供应商（目标工具: ${toolLabel}）：`,
     choices: [
       ...BUILT_IN_PRESETS.map((p) => ({
         value: p as ProviderPreset | null | typeof BACK,
-        name: `${p.label} (${p.apiBaseUrl})`,
+        name: `${p.label} (${tool === "opencode" ? p.apiBaseUrlOC : p.apiBaseUrl})`,
       })),
-      { value: null as ProviderPreset | null | typeof BACK, name: "🔧  自定义" },
+      { value: null as ProviderPreset | null | typeof BACK, name: "🔧 自定义" },
       BACK_CHOICE as { value: ProviderPreset | null | typeof BACK; name: string },
     ],
   });
@@ -277,85 +318,142 @@ async function handleAdd(): Promise<void> {
 
   let profile: Profile;
 
-  if (presetChoice) {
-    const preset = presetChoice as ProviderPreset;
-    const apiKey = await safeInput({ message: `API Key（${preset.label}）：` });
-    if (apiKey === null) { cancelled(); return; }
-    if (!apiKey.trim()) {
-      console.log(chalk.yellow("API Key 不能为空。"));
-      return;
+  if (tool === "claude-code") {
+    // Claude Code：完整的模型字段
+    if (presetChoice) {
+      const preset = presetChoice as ProviderPreset;
+      const apiKey = await safeInput({ message: `API Key（${preset.label}）：` });
+      if (apiKey === null) { cancelled(); return; }
+      if (!apiKey.trim()) {
+        console.log(chalk.yellow("API Key 不能为空。"));
+        return;
+      }
+      const model = await safeInput({ message: "模型名称：", default: preset.model });
+      if (model === null) { cancelled(); return; }
+      const mainModel = model || preset.model;
+      const smallFastModel = await safeInput({ message: "Small/Fast 模型：", default: mainModel });
+      if (smallFastModel === null) { cancelled(); return; }
+      const haikuModel = await safeInput({ message: "Haiku 模型：", default: mainModel });
+      if (haikuModel === null) { cancelled(); return; }
+      const sonnetModel = await safeInput({ message: "Sonnet 模型：", default: mainModel });
+      if (sonnetModel === null) { cancelled(); return; }
+      const opusModel = await safeInput({ message: "Opus 模型：", default: mainModel });
+      if (opusModel === null) { cancelled(); return; }
+      const subagentModel = await safeInput({ message: "Subagent 模型：", default: mainModel });
+      if (subagentModel === null) { cancelled(); return; }
+      profile = {
+        tool,
+        name: preset.name,
+        apiKey,
+        apiBaseUrl: preset.apiBaseUrl,
+        model: mainModel,
+        smallFastModel: smallFastModel || mainModel,
+        haikuModel: haikuModel || mainModel,
+        sonnetModel: sonnetModel || mainModel,
+        opusModel: opusModel || mainModel,
+        subagentModel: subagentModel || mainModel,
+      };
+    } else {
+      const name = await safeInput({ message: "供应商名（如 my-provider）：" });
+      if (name === null || !name.trim()) { cancelled(); return; }
+      const apiKey = await safeInput({ message: "API Key：" });
+      if (apiKey === null) { cancelled(); return; }
+      if (!apiKey.trim()) {
+        console.log(chalk.yellow("API Key 不能为空。"));
+        return;
+      }
+      const apiBaseUrl = await safeInput({ message: "API Base URL：" });
+      if (apiBaseUrl === null) { cancelled(); return; }
+      const model = await safeInput({ message: "模型名称：" });
+      if (model === null) { cancelled(); return; }
+      const mainModel = model || "";
+      const smallFastModel = await safeInput({ message: "Small/Fast 模型：", default: mainModel });
+      if (smallFastModel === null) { cancelled(); return; }
+      const haikuModel = await safeInput({ message: "Haiku 模型：", default: mainModel });
+      if (haikuModel === null) { cancelled(); return; }
+      const sonnetModel = await safeInput({ message: "Sonnet 模型：", default: mainModel });
+      if (sonnetModel === null) { cancelled(); return; }
+      const opusModel = await safeInput({ message: "Opus 模型：", default: mainModel });
+      if (opusModel === null) { cancelled(); return; }
+      const subagentModel = await safeInput({ message: "Subagent 模型：", default: mainModel });
+      if (subagentModel === null) { cancelled(); return; }
+      profile = {
+        tool,
+        name: name.trim(),
+        apiKey,
+        apiBaseUrl,
+        model: mainModel,
+        smallFastModel: smallFastModel || mainModel,
+        haikuModel: haikuModel || mainModel,
+        sonnetModel: sonnetModel || mainModel,
+        opusModel: opusModel || mainModel,
+        subagentModel: subagentModel || mainModel,
+      };
     }
-    const model = await safeInput({ message: "模型名称：", default: preset.model });
-    if (model === null) { cancelled(); return; }
-    const mainModel = model || preset.model;
-    const smallFastModel = await safeInput({ message: "Small/Fast 模型：", default: mainModel });
-    if (smallFastModel === null) { cancelled(); return; }
-    const haikuModel = await safeInput({ message: "Haiku 模型：", default: mainModel });
-    if (haikuModel === null) { cancelled(); return; }
-    const sonnetModel = await safeInput({ message: "Sonnet 模型：", default: mainModel });
-    if (sonnetModel === null) { cancelled(); return; }
-    const opusModel = await safeInput({ message: "Opus 模型：", default: mainModel });
-    if (opusModel === null) { cancelled(); return; }
-    const subagentModel = await safeInput({ message: "Subagent 模型：", default: mainModel });
-    if (subagentModel === null) { cancelled(); return; }
-    profile = {
-      name: preset.name,
-      apiKey,
-      apiBaseUrl: preset.apiBaseUrl,
-      model: mainModel,
-      smallFastModel: smallFastModel || mainModel,
-      haikuModel: haikuModel || mainModel,
-      sonnetModel: sonnetModel || mainModel,
-      opusModel: opusModel || mainModel,
-      subagentModel: subagentModel || mainModel,
-    };
   } else {
-    const name = await safeInput({ message: "供应商名（如 my-provider）：" });
-    if (name === null || !name.trim()) { cancelled(); return; }
-    const apiKey = await safeInput({ message: "API Key：" });
-    if (apiKey === null) { cancelled(); return; }
-    if (!apiKey.trim()) {
-      console.log(chalk.yellow("API Key 不能为空。"));
-      return;
+    // OpenCode：只需 name / apiKey / apiBaseUrl / model
+    if (presetChoice) {
+      const preset = presetChoice as ProviderPreset;
+      const apiKey = await safeInput({ message: `API Key（${preset.label}）：` });
+      if (apiKey === null) { cancelled(); return; }
+      if (!apiKey.trim()) {
+        console.log(chalk.yellow("API Key 不能为空。"));
+        return;
+      }
+      const model = await safeInput({ message: "模型名称（将作为 model-id）：", default: preset.model });
+      if (model === null) { cancelled(); return; }
+      profile = {
+        tool,
+        name: preset.name,
+        apiKey,
+        apiBaseUrl: preset.apiBaseUrlOC,
+        model: model || preset.model,
+        smallFastModel: "",
+        haikuModel: "",
+        sonnetModel: "",
+        opusModel: "",
+        subagentModel: "",
+      };
+    } else {
+      const name = await safeInput({ message: "供应商名（即 provider-id，如 my-provider）：" });
+      if (name === null || !name.trim()) { cancelled(); return; }
+      const apiKey = await safeInput({ message: "API Key：" });
+      if (apiKey === null) { cancelled(); return; }
+      if (!apiKey.trim()) {
+        console.log(chalk.yellow("API Key 不能为空。"));
+        return;
+      }
+      const apiBaseUrl = await safeInput({ message: "API Base URL：" });
+      if (apiBaseUrl === null) { cancelled(); return; }
+      const model = await safeInput({ message: "模型名称（即 model-id）：" });
+      if (model === null) { cancelled(); return; }
+      profile = {
+        tool,
+        name: name.trim(),
+        apiKey,
+        apiBaseUrl: apiBaseUrl || "",
+        model: model || "",
+        smallFastModel: "",
+        haikuModel: "",
+        sonnetModel: "",
+        opusModel: "",
+        subagentModel: "",
+      };
     }
-    const apiBaseUrl = await safeInput({ message: "API Base URL：" });
-    if (apiBaseUrl === null) { cancelled(); return; }
-    const model = await safeInput({ message: "模型名称：" });
-    if (model === null) { cancelled(); return; }
-    const mainModel = model || "";
-    const smallFastModel = await safeInput({ message: "Small/Fast 模型：", default: mainModel });
-    if (smallFastModel === null) { cancelled(); return; }
-    const haikuModel = await safeInput({ message: "Haiku 模型：", default: mainModel });
-    if (haikuModel === null) { cancelled(); return; }
-    const sonnetModel = await safeInput({ message: "Sonnet 模型：", default: mainModel });
-    if (sonnetModel === null) { cancelled(); return; }
-    const opusModel = await safeInput({ message: "Opus 模型：", default: mainModel });
-    if (opusModel === null) { cancelled(); return; }
-    const subagentModel = await safeInput({ message: "Subagent 模型：", default: mainModel });
-    if (subagentModel === null) { cancelled(); return; }
-    profile = {
-      name: name.trim(),
-      apiKey,
-      apiBaseUrl,
-      model: mainModel,
-      smallFastModel: smallFastModel || mainModel,
-      haikuModel: haikuModel || mainModel,
-      sonnetModel: sonnetModel || mainModel,
-      opusModel: opusModel || mainModel,
-      subagentModel: subagentModel || mainModel,
-    };
   }
 
   try {
     addProfile(profile);
-    console.log(chalk.green(`✓ 供应商 "${profile.name}" 已添加。`));
+    console.log(chalk.green(`✓ 供应商 "${profile.name}" 已添加（目标: ${toolLabel}）。`));
   } catch (err) {
     console.log(chalk.red((err as Error).message));
   }
 }
 
-async function handleEdit(): Promise<void> {
-  const profiles = listProfiles();
+// ─── 编辑供应商 ──────────────────────────────────────────────
+
+async function handleEdit(tool: ToolType): Promise<void> {
+  const profiles = listProfilesByTool(tool);
   if (profiles.length === 0) {
     console.log(chalk.yellow("暂无供应商配置。"));
     return;
@@ -366,7 +464,7 @@ async function handleEdit(): Promise<void> {
     choices: [
       ...profiles.map((p) => ({
         value: p as Profile | typeof BACK,
-        name: `${p.name} (模型: ${p.model})`,
+        name: `${p.name} (${p.model})`,
       })),
       BACK_CHOICE as { value: Profile | typeof BACK; name: string },
     ],
@@ -397,54 +495,79 @@ async function handleEdit(): Promise<void> {
 
   const mainModel = model || selected.model;
 
-  const smallFastModel = await safeInput({
-    message: "Small/Fast 模型（回车保持原值）：",
-    default: selected.smallFastModel || mainModel,
-  });
-  if (smallFastModel === null) { cancelled(); return; }
+  let profile: Profile;
 
-  const haikuModel = await safeInput({
-    message: "Haiku 模型（回车保持原值）：",
-    default: selected.haikuModel || mainModel,
-  });
-  if (haikuModel === null) { cancelled(); return; }
+  if (tool === "claude-code") {
+    const smallFastModel = await safeInput({
+      message: "Small/Fast 模型（回车保持原值）：",
+      default: selected.smallFastModel || mainModel,
+    });
+    if (smallFastModel === null) { cancelled(); return; }
 
-  const sonnetModel = await safeInput({
-    message: "Sonnet 模型（回车保持原值）：",
-    default: selected.sonnetModel || mainModel,
-  });
-  if (sonnetModel === null) { cancelled(); return; }
+    const haikuModel = await safeInput({
+      message: "Haiku 模型（回车保持原值）：",
+      default: selected.haikuModel || mainModel,
+    });
+    if (haikuModel === null) { cancelled(); return; }
 
-  const opusModel = await safeInput({
-    message: "Opus 模型（回车保持原值）：",
-    default: selected.opusModel || mainModel,
-  });
-  if (opusModel === null) { cancelled(); return; }
+    const sonnetModel = await safeInput({
+      message: "Sonnet 模型（回车保持原值）：",
+      default: selected.sonnetModel || mainModel,
+    });
+    if (sonnetModel === null) { cancelled(); return; }
 
-  const subagentModel = await safeInput({
-    message: "Subagent 模型（回车保持原值）：",
-    default: selected.subagentModel || mainModel,
-  });
-  if (subagentModel === null) { cancelled(); return; }
+    const opusModel = await safeInput({
+      message: "Opus 模型（回车保持原值）：",
+      default: selected.opusModel || mainModel,
+    });
+    if (opusModel === null) { cancelled(); return; }
 
-  const profile: Profile = {
-    name: selected.name,
-    apiKey: apiKey || selected.apiKey,
-    apiBaseUrl: apiBaseUrl || selected.apiBaseUrl,
-    model: mainModel,
-    smallFastModel: smallFastModel || mainModel,
-    haikuModel: haikuModel || mainModel,
-    sonnetModel: sonnetModel || mainModel,
-    opusModel: opusModel || mainModel,
-    subagentModel: subagentModel || mainModel,
-  };
+    const subagentModel = await safeInput({
+      message: "Subagent 模型（回车保持原值）：",
+      default: selected.subagentModel || mainModel,
+    });
+    if (subagentModel === null) { cancelled(); return; }
+
+    profile = {
+      tool,
+      name: selected.name,
+      apiKey: apiKey || selected.apiKey,
+      apiBaseUrl: apiBaseUrl || selected.apiBaseUrl,
+      model: mainModel,
+      smallFastModel: smallFastModel || mainModel,
+      haikuModel: haikuModel || mainModel,
+      sonnetModel: sonnetModel || mainModel,
+      opusModel: opusModel || mainModel,
+      subagentModel: subagentModel || mainModel,
+    };
+  } else {
+    profile = {
+      tool,
+      name: selected.name,
+      apiKey: apiKey || selected.apiKey,
+      apiBaseUrl: apiBaseUrl || selected.apiBaseUrl,
+      model: mainModel,
+      smallFastModel: "",
+      haikuModel: "",
+      sonnetModel: "",
+      opusModel: "",
+      subagentModel: "",
+    };
+  }
 
   try {
     const config = loadConfig();
-    const idx = config.profiles.findIndex((p) => p.name === selected.name);
+    const idx = config.profiles.findIndex(
+      (p) => p.name === selected.name && p.tool === tool,
+    );
     if (idx !== -1) {
       config.profiles[idx] = profile;
       saveConfig(config);
+      // 如果编辑的是当前激活的供应商，立即同步到工具配置文件
+      const active = config.active[tool];
+      if (active === selected.name) {
+        switchToProfile(profile);
+      }
       console.log(chalk.green(`✓ 供应商 "${selected.name}" 已更新。`));
     }
   } catch (err) {
@@ -452,14 +575,16 @@ async function handleEdit(): Promise<void> {
   }
 }
 
-async function handleDelete(): Promise<void> {
-  const profiles = listProfiles();
+// ─── 删除供应商 ──────────────────────────────────────────────
+
+async function handleDelete(tool: ToolType): Promise<void> {
+  const profiles = listProfilesByTool(tool);
   if (profiles.length === 0) {
     console.log(chalk.yellow("暂无供应商配置。"));
     return;
   }
 
-  const active = getActiveName();
+  const active = getActiveName(tool);
   const selected = await safeSelect<string | typeof BACK>({
     message: "选择要删除的供应商：",
     choices: [
@@ -478,7 +603,7 @@ async function handleDelete(): Promise<void> {
 
   if (selected === active) {
     const warned = await safeConfirm({
-      message: chalk.yellow(`"${selected}" 是当前激活的供应商，删除后 Claude Code 将使用 settings.local.json 中的现有值。确认删除？`),
+      message: chalk.yellow(`"${selected}" 是当前激活的供应商，确认删除？`),
     });
     if (warned === null || !warned) {
       console.log(chalk.yellow("已取消删除。"));
@@ -493,36 +618,44 @@ async function handleDelete(): Promise<void> {
   }
 
   try {
-    removeProfile(selected);
+    removeProfile(tool, selected);
     console.log(chalk.green(`✓ 供应商 "${selected}" 已删除。`));
   } catch (err) {
     console.log(chalk.red((err as Error).message));
   }
 }
 
-function handleList(): void {
-  const profiles = listProfiles();
-  const active = getActiveName();
+// ─── 列出供应商 ──────────────────────────────────────────────
+
+function handleList(tool: ToolType): void {
+  const profiles = listProfilesByTool(tool);
+  const active = getActiveName(tool);
+  const toolLabel = tool === "claude-code" ? "Claude Code" : "OpenCode";
 
   if (profiles.length === 0) {
-    console.log(chalk.yellow("暂无供应商配置。"));
+    console.log(chalk.yellow(`暂无 ${toolLabel} 供应商配置。`));
     return;
   }
 
   console.log("");
+  console.log(chalk.dim(`  [${toolLabel}]`));
   for (const p of profiles) {
     const marker = p.name === active ? chalk.green(" ← 当前") : "";
     console.log(`  ${chalk.bold(p.name)}${marker}`);
-    console.log(`    Base URL:       ${p.apiBaseUrl}`);
-    console.log(`    模型:           ${p.model}`);
-    if (p.smallFastModel !== p.model) console.log(`    Small/Fast:     ${p.smallFastModel}`);
-    if (p.haikuModel !== p.model) console.log(`    Haiku:          ${p.haikuModel}`);
-    if (p.sonnetModel !== p.model) console.log(`    Sonnet:         ${p.sonnetModel}`);
-    if (p.opusModel !== p.model) console.log(`    Opus:           ${p.opusModel}`);
-    if (p.subagentModel !== p.model) console.log(`    Subagent:       ${p.subagentModel}`);
+    console.log(`    Base URL:  ${p.apiBaseUrl}`);
+    console.log(`    模型:      ${p.model}`);
+    if (tool === "claude-code") {
+      if (p.smallFastModel !== p.model) console.log(`    Small/Fast: ${p.smallFastModel}`);
+      if (p.haikuModel !== p.model) console.log(`    Haiku:      ${p.haikuModel}`);
+      if (p.sonnetModel !== p.model) console.log(`    Sonnet:     ${p.sonnetModel}`);
+      if (p.opusModel !== p.model) console.log(`    Opus:       ${p.opusModel}`);
+      if (p.subagentModel !== p.model) console.log(`    Subagent:   ${p.subagentModel}`);
+    }
   }
   console.log("");
 }
+
+// ─── 跳过首次登录引导 ────────────────────────────────────────
 
 async function handleOnboarding(): Promise<void> {
   let config: Record<string, unknown>;
@@ -560,61 +693,6 @@ async function handleOnboarding(): Promise<void> {
     } else {
       console.log(chalk.green("✓ 已重置首次登录引导，下次启动 Claude Code 将显示引导流程。"));
     }
-  } catch (err) {
-    console.log(chalk.red(`设置失败：${(err as Error).message}`));
-  }
-}
-
-async function handleAttribution(): Promise<void> {
-  const settings = loadClaudeSettings();
-  const attr = (settings.attribution ?? {}) as { commits?: boolean; pullRequests?: boolean };
-
-  const commitsLabel = attr.commits ? chalk.green("已开启") : chalk.red("已关闭");
-  const prsLabel = attr.pullRequests ? chalk.green("已开启") : chalk.red("已关闭");
-
-  console.log(`  git提交署名：${commitsLabel}`);
-  console.log(`  PR署名：${prsLabel}`);
-  console.log("");
-
-  const choice = await safeSelect<string | typeof BACK>({
-    message: "AI 署名设置：",
-    choices: [
-      { value: "commits-on", name: `git 提交署名 — 开启` },
-      { value: "commits-off", name: `git 提交署名 — 关闭` },
-      { value: "prs-on", name: `PR 署名 — 开启` },
-      { value: "prs-off", name: `PR 署名 — 关闭` },
-      BACK_CHOICE as { value: string | typeof BACK; name: string },
-    ],
-  });
-
-  if (choice === null || choice === BACK) {
-    cancelled();
-    return;
-  }
-
-  if (!settings.attribution) {
-    settings.attribution = {};
-  }
-  const a = settings.attribution as { commits?: boolean; pullRequests?: boolean };
-
-  switch (choice) {
-    case "commits-on":
-      a.commits = true;
-      break;
-    case "commits-off":
-      a.commits = false;
-      break;
-    case "prs-on":
-      a.pullRequests = true;
-      break;
-    case "prs-off":
-      a.pullRequests = false;
-      break;
-  }
-
-  try {
-    saveClaudeSettings(settings);
-    console.log(chalk.green("✓ AI 署名设置已保存。"));
   } catch (err) {
     console.log(chalk.red(`设置失败：${(err as Error).message}`));
   }

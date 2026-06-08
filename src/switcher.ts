@@ -8,8 +8,12 @@ const SETTINGS_FILE = path.join(CLAUDE_DIR, "settings.json");
 
 export const CLAUDE_JSON_PATH = path.join(os.homedir(), ".claude.json");
 
-const CONFIG_DIR = path.join(os.homedir(), ".claude-switcher");
-const BACKUP_FILE = path.join(CONFIG_DIR, "backup.json");
+const OPENCODE_CONFIG_DIR = path.join(os.homedir(), ".config", "opencode");
+const OPENCODE_CONFIG_FILE = path.join(OPENCODE_CONFIG_DIR, "opencode.json");
+
+const SWITCHER_DIR = path.join(os.homedir(), ".claude-switcher");
+const BACKUP_FILE = path.join(SWITCHER_DIR, "backup.json");
+const BACKUP_OPENCODE_FILE = path.join(SWITCHER_DIR, "backup-opencode.json");
 
 interface ClaudeSettings {
   env?: Record<string, string>;
@@ -20,17 +24,26 @@ interface ClaudeSettings {
   [key: string]: unknown;
 }
 
-function ensureClaudeDir(): void {
-  if (!fs.existsSync(CLAUDE_DIR)) {
-    fs.mkdirSync(CLAUDE_DIR, { recursive: true });
+interface OpenCodeConfig {
+  provider?: Record<
+    string,
+    {
+      options?: { baseURL?: string; apiKey?: string; timeout?: number; [key: string]: unknown };
+      models?: Record<string, { name?: string; [key: string]: unknown }>;
+      [key: string]: unknown;
+    }
+  >;
+  model?: string;
+  [key: string]: unknown;
+}
+
+function ensureDir(dir: string): void {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-function ensureSwitcherDir(): void {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  }
-}
+// ─── Claude Code ────────────────────────────────────────────
 
 export function loadClaudeSettings(): ClaudeSettings {
   if (!fs.existsSync(SETTINGS_FILE)) {
@@ -41,12 +54,12 @@ export function loadClaudeSettings(): ClaudeSettings {
 }
 
 export function saveClaudeSettings(settings: ClaudeSettings): void {
-  ensureClaudeDir();
+  ensureDir(CLAUDE_DIR);
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf-8");
 }
 
-export function backupSettings(): void {
-  ensureSwitcherDir();
+function backupClaudeSettings(): void {
+  ensureDir(SWITCHER_DIR);
   if (fs.existsSync(SETTINGS_FILE)) {
     fs.copyFileSync(SETTINGS_FILE, BACKUP_FILE);
   } else {
@@ -54,8 +67,8 @@ export function backupSettings(): void {
   }
 }
 
-export function switchToProfile(profile: Profile): void {
-  backupSettings();
+export function switchClaudeCode(profile: Profile): void {
+  backupClaudeSettings();
   const settings = loadClaudeSettings();
   if (!settings.env) {
     settings.env = {};
@@ -70,4 +83,69 @@ export function switchToProfile(profile: Profile): void {
   settings.env.CLAUDE_CODE_SUBAGENT_MODEL = profile.subagentModel;
   settings.model = profile.model;
   saveClaudeSettings(settings);
+}
+
+// ─── OpenCode ────────────────────────────────────────────────
+
+export function loadOpenCodeConfig(): OpenCodeConfig {
+  if (!fs.existsSync(OPENCODE_CONFIG_FILE)) {
+    return {};
+  }
+  const raw = fs.readFileSync(OPENCODE_CONFIG_FILE, "utf-8");
+  return JSON.parse(raw) as OpenCodeConfig;
+}
+
+export function saveOpenCodeConfig(config: OpenCodeConfig): void {
+  ensureDir(OPENCODE_CONFIG_DIR);
+  fs.writeFileSync(
+    OPENCODE_CONFIG_FILE,
+    JSON.stringify(config, null, 2),
+    "utf-8",
+  );
+}
+
+function backupOpenCodeConfig(): void {
+  ensureDir(SWITCHER_DIR);
+  if (fs.existsSync(OPENCODE_CONFIG_FILE)) {
+    fs.copyFileSync(OPENCODE_CONFIG_FILE, BACKUP_OPENCODE_FILE);
+  } else {
+    fs.writeFileSync(BACKUP_OPENCODE_FILE, "{}", "utf-8");
+  }
+}
+
+export function switchOpenCode(profile: Profile): void {
+  backupOpenCodeConfig();
+  const config = loadOpenCodeConfig();
+
+  if (!config.provider) {
+    config.provider = {};
+  }
+
+  // 写入或更新 provider（models 仅保留当前，避免旧模型残留）
+  config.provider[profile.name] = {
+    options: {
+      baseURL: profile.apiBaseUrl,
+      apiKey: profile.apiKey,
+    },
+    models: {
+      [profile.model]: {
+        name: profile.model,
+      },
+    },
+  };
+
+  // 设置当前使用的模型
+  config.model = `${profile.name}/${profile.model}`;
+
+  saveOpenCodeConfig(config);
+}
+
+// ─── 统一切换入口 ────────────────────────────────────────────
+
+export function switchToProfile(profile: Profile): void {
+  if (profile.tool === "opencode") {
+    switchOpenCode(profile);
+  } else {
+    switchClaudeCode(profile);
+  }
 }
