@@ -8,7 +8,19 @@ const SETTINGS_FILE = path.join(CLAUDE_DIR, "settings.json");
 
 export const CLAUDE_JSON_PATH = path.join(os.homedir(), ".claude.json");
 
-const OPENCODE_CONFIG_DIR = path.join(os.homedir(), ".config", "opencode");
+function getOpenCodeConfigDir(): string {
+  if (process.env.XDG_CONFIG_HOME) {
+    return path.join(process.env.XDG_CONFIG_HOME, "opencode");
+  }
+
+  if (process.platform === "win32" && process.env.APPDATA) {
+    return path.join(process.env.APPDATA, "opencode");
+  }
+
+  return path.join(os.homedir(), ".config", "opencode");
+}
+
+const OPENCODE_CONFIG_DIR = getOpenCodeConfigDir();
 const OPENCODE_CONFIG_FILE = path.join(OPENCODE_CONFIG_DIR, "opencode.json");
 
 const SWITCHER_DIR = path.join(os.homedir(), ".claude-switcher");

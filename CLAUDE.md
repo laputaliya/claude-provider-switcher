@@ -9,12 +9,14 @@ Claude Code 大模型供应商切换工具（CLI 命令 `ccs`，包名 `claude-p
 ## 常用命令
 
 ```bash
-pnpm build          # 编译（输出到 dist/）
-pnpm dev            # 监听模式编译
-pnpm start          # 运行
-node dist/index.js  # 直接运行编译产物
-./install.sh        # 安装全局命令
-./uninstall.sh      # 卸载全局命令
+pnpm build                                             # 编译（输出到 dist/）
+pnpm dev                                               # 监听模式编译
+pnpm start                                             # 运行
+node dist/index.js                                     # 直接运行编译产物
+./install.sh                                           # 安装全局命令（macOS/Linux）
+./uninstall.sh                                         # 卸载全局命令（macOS/Linux）
+powershell -ExecutionPolicy Bypass -File .\install.ps1   # 安装全局命令（Windows）
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 # 卸载全局命令（Windows）
 ```
 
 ## 架构
@@ -30,6 +32,7 @@ src/
 - **配置存储**：`~/.claude-switcher/profiles.json`，包含 `profiles[]` 和 `active` 字段
 - **切换目标**：修改 `~/.claude/settings.json` 的 `env` 字段（ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL、ANTHROPIC_MODEL）
 - **备份**：切换前自动备份 `settings.json` 到 `~/.claude-switcher/backup.json`
+- **OpenCode 配置**：遵循跨平台配置目录，优先 `XDG_CONFIG_HOME`，Windows 使用 `%APPDATA%\opencode`，其他平台默认 `~/.config/opencode`
 - **附加功能**：跳过首次登录引导（`~/.claude.json` 的 `hasCompletedOnboarding`）、AI 署名设置（`settings.json` 的 `attribution`）
 
 ## 关键设计决策

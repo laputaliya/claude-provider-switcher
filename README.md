@@ -18,15 +18,34 @@
 # 克隆项目
 git clone <repo-url>
 cd claude-provider-switcher
+```
 
-# 安装全局命令
+### macOS / Linux
+
+```bash
 ./install.sh
+```
+
+### Windows
+
+建议在 Windows Terminal / PowerShell 中运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ## 卸载
 
+### macOS / Linux
+
 ```bash
 ./uninstall.sh
+```
+
+### Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
 ## 使用
@@ -39,7 +58,7 @@ pnpm start
 ccs
 ```
 
-运行后进入交互式主菜单，按 ESC 或 Ctrl+C 可返回上级：
+运行后进入交互式主菜单，按 ESC 或 Ctrl+C 可返回上级。Windows 用户建议使用 Windows Terminal / PowerShell，以获得更稳定的交互式菜单体验：
 
 ```
 ? 请选择操作：
@@ -91,6 +110,8 @@ ccs
 | `~/.claude-switcher/backup.json` | 切换前的自动备份 |
 | `~/.claude/settings.json` | Claude Code 配置（切换目标，写 `env` 字段） |
 | `~/.claude.json` | Claude Code 全局配置（引导跳过等） |
+| `~/.config/opencode/opencode.json` | OpenCode 配置（Linux/macOS） |
+| `%APPDATA%\opencode\opencode.json` | OpenCode 配置（Windows） |
 
 切换时修改 `settings.json` 中 `env` 的以下环境变量：
 
