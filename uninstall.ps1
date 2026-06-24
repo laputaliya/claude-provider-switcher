@@ -5,14 +5,14 @@ function Test-Command($Name) {
 }
 
 if (Test-Command "ccs") {
-  Write-Host "正在卸载 ccs 命令..."
+  Write-Host "Uninstalling ccs command..."
   npm unlink -g claude-provider-switcher
 
   if (Test-Command "ccs") {
-    Write-Host "提示：ccs 命令仍然存在，可能由其他安装方式提供，请手动检查。"
+    Write-Host "Note: ccs command still exists. It may be provided by another installation. Please check it manually."
   } else {
-    Write-Host "✓ 已卸载 ccs 命令"
+    Write-Host "ccs command uninstalled successfully"
   }
 } else {
-  Write-Host "ccs 命令不存在，无需卸载"
+  Write-Host "ccs command does not exist. Nothing to uninstall."
 }
