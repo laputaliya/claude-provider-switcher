@@ -66,6 +66,7 @@ function withEscCancel<T>(
 
 const BACK = Symbol("back");
 const BACK_CHOICE = { value: BACK, name: "🔙 返回上级菜单" };
+const CUSTOM = Symbol("custom");
 
 function cancelled(): void {
   console.log(chalk.yellow("已返回。"));
@@ -299,15 +300,15 @@ async function handleSwitch(tool: ToolType): Promise<void> {
 
 async function handleAdd(tool: ToolType): Promise<void> {
   const toolLabel = tool === "claude-code" ? "Claude Code" : "OpenCode";
-  const presetChoice = await safeSelect<ProviderPreset | null | typeof BACK>({
+  const presetChoice = await safeSelect<ProviderPreset | typeof CUSTOM | typeof BACK>({
     message: `选择供应商（目标工具: ${toolLabel}）：`,
     choices: [
       ...BUILT_IN_PRESETS.map((p) => ({
-        value: p as ProviderPreset | null | typeof BACK,
+        value: p as ProviderPreset | typeof CUSTOM | typeof BACK,
         name: `${p.label} (${tool === "opencode" ? p.apiBaseUrlOC : p.apiBaseUrl})`,
       })),
-      { value: null as ProviderPreset | null | typeof BACK, name: "🔧 自定义" },
-      BACK_CHOICE as { value: ProviderPreset | null | typeof BACK; name: string },
+      { value: CUSTOM as typeof CUSTOM, name: "🔧 自定义" },
+      BACK_CHOICE as { value: ProviderPreset | typeof CUSTOM | typeof BACK; name: string },
     ],
   });
 
@@ -320,7 +321,7 @@ async function handleAdd(tool: ToolType): Promise<void> {
 
   if (tool === "claude-code") {
     // Claude Code：完整的模型字段
-    if (presetChoice) {
+    if (presetChoice !== CUSTOM) {
       const preset = presetChoice as ProviderPreset;
       const apiKey = await safeInput({ message: `API Key（${preset.label}）：` });
       if (apiKey === null) { cancelled(); return; }
@@ -392,7 +393,7 @@ async function handleAdd(tool: ToolType): Promise<void> {
     }
   } else {
     // OpenCode：只需 name / apiKey / apiBaseUrl / model
-    if (presetChoice) {
+    if (presetChoice !== CUSTOM) {
       const preset = presetChoice as ProviderPreset;
       const apiKey = await safeInput({ message: `API Key（${preset.label}）：` });
       if (apiKey === null) { cancelled(); return; }
